@@ -43,10 +43,25 @@ namespace MetaVoiceChat.NetProviders.Netick
                 pinnedBuffer.Free();
         }
 
+        private byte GetCompressedAdditionalLatency(float additionalLatency)
+        {
+            additionalLatency = Mathf.Clamp(additionalLatency, 0, MaxAdditionalLatency);
+            float t = additionalLatency / MaxAdditionalLatency;
+            return ((byte)(t * byte.MaxValue));
+        }
+
+        private float UnCompressAdditionalLatency(byte compressedAdditionalLatency)
+        {
+            float additionalLatency = (float)compressedAdditionalLatency / byte.MaxValue;
+            return additionalLatency * MaxAdditionalLatency;
+        }
+
         unsafe void OnDataReceived(NetworkSandbox sandbox, NetworkConnection sender, byte id, byte* data, int length, TransportDeliveryMethod transportDeliveryMethod)
         {
             if (id != VoiceDataID)
                 return;
+
+            byte* dataStart = data;
 
             int index = *(int*)data;
             data += sizeof(int);
@@ -57,33 +72,33 @@ namespace MetaVoiceChat.NetProviders.Netick
             byte compressedAdditionalLatency = *(byte*)data;
             data += additionalLatencySize;
 
-            float additionalLatency = (float)compressedAdditionalLatency / byte.MaxValue;
-            additionalLatency *= MaxAdditionalLatency;
+            float additionalLatency = UnCompressAdditionalLatency(compressedAdditionalLatency);
 
             int payloadLength = length;
             payloadLength-= ExtraDataSize;
 
             if (sandbox.IsServer)
             {
-                Buffer.MemoryCopy(data, (byte*)pVoiceBuffer, voiceBuffer.Length, payloadLength);
-
                 int userNetworkID = ConnectionIdToPlayerObjectID[sender.PlayerId];
 
-                if (Sandbox.TryGetBehaviour<NetickNetProvider>(userNetworkID, out NetickNetProvider cl))
-                    cl.ReceiveFrame(index, timestamp, additionalLatency, new ReadOnlySpan<byte>(data, payloadLength));
+                if (sandbox.IsHost) //only play back voice if not dedicated server
+                {
+                    if (sandbox.TryGetBehaviour<NetickNetProvider>(userNetworkID, out NetickNetProvider cl))
+                        cl.ReceiveFrame(index, timestamp, additionalLatency, new ReadOnlySpan<byte>(data, payloadLength));
+                }
 
                 //modify the additional latency in place
-                float* pLatency = (float*)(data - sizeof(float));
-                *pLatency += NetickNetProvider.GetAdditionalLatency();
+                data -= additionalLatencySize;
+                byte* pLatency = (byte*)(data);
+                *pLatency = GetCompressedAdditionalLatency(additionalLatency + NetickNetProvider.GetAdditionalLatency());
+                //data -= (ExtraDataSize - additionalLatencySize);    //move data pointer back to start
 
                 //send the data from server to all other clients
-                SendVoiceDataToClients(sandbox, data, userNetworkID, length, sender);
+                SendVoiceDataToClients(sandbox, dataStart, userNetworkID, length, sender);
             }
             else
             {
                 payloadLength -= sizeof(int);   //clients receive an extra int for PlayerID
-
-                //Buffer.MemoryCopy(data, (byte*)pVoiceBuffer, voiceBuffer.Length, payloadLength);
 
                 data += payloadLength;
 
@@ -93,9 +108,6 @@ namespace MetaVoiceChat.NetProviders.Netick
 
                 if (Sandbox.TryGetBehaviour<NetickNetProvider>(userNetworkID, out NetickNetProvider cl))
                     cl.ReceiveFrame(index, timestamp, additionalLatency, new ReadOnlySpan<byte>(data, payloadLength));
-
-                //if (Sandbox.TryGetBehaviour<NetickNetProvider>(userNetworkID, out NetickNetProvider cl))
-                //    cl.ReceiveFrame(index, timestamp, additionalLatency, voiceBuffer.AsSpan(0, payloadLength));
             }
         }
 
@@ -118,9 +130,7 @@ namespace MetaVoiceChat.NetProviders.Netick
         
         private unsafe byte* GetVoiceDataPointer(int index, double timestamp, float additionalLatency, ReadOnlySpan<byte> data)
         {
-            additionalLatency = Mathf.Clamp(additionalLatency, 0, MaxAdditionalLatency);
-            float t = additionalLatency / MaxAdditionalLatency;
-            byte compressedAdditionalLatency = ((byte)(t * byte.MaxValue));
+            byte compressedAdditionalLatency = GetCompressedAdditionalLatency(additionalLatency);
 
             byte* ptr = (byte*)pVoiceBuffer;
 
@@ -133,7 +143,6 @@ namespace MetaVoiceChat.NetProviders.Netick
             *(byte*)ptr = compressedAdditionalLatency;
             ptr += additionalLatencySize;
 
-            //data.CopyTo(new Span<byte>(ptr, data.Length));
             fixed (byte* srcPtr = data)
             {
                 Buffer.MemoryCopy(srcPtr, ptr, data.Length, data.Length);
