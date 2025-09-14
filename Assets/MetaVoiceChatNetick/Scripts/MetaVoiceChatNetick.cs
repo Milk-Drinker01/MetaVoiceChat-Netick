@@ -1,3 +1,4 @@
+#if NETICK
 using Netick;
 using Netick.Unity;
 using System;
@@ -9,14 +10,20 @@ namespace MetaVoiceChat.NetProviders.Netick
 {
     public class MetaVoiceChatNetick : NetickBehaviour
     {
+        [Header("This Component should live on your Sandbox Prefab.")]
+        [Space(10)]
         [Tooltip("Uses NetworkConnection.SendData - If you have other things that use this, make sure the IDs are unique")]
         public byte VoiceDataID = 0;
 
         public Dictionary<int, int> ConnectionIdToPlayerObjectID;
 
+        private const float MaxAdditionalLatency = 0.2f;
+
         private byte[] voiceBuffer;
         private GCHandle pinnedBuffer;
         private IntPtr pVoiceBuffer;
+        private int ExtraDataSize;
+        public const int additionalLatencySize = sizeof(byte);  //in case we ever want to change the data type this is sent as
 
         public override unsafe void NetworkStart()
         {
@@ -26,6 +33,8 @@ namespace MetaVoiceChat.NetProviders.Netick
             voiceBuffer = new byte[1024];
             pinnedBuffer = GCHandle.Alloc(voiceBuffer, GCHandleType.Pinned);
             pVoiceBuffer = pinnedBuffer.AddrOfPinnedObject();
+
+            ExtraDataSize = (sizeof(int) + sizeof(double) + additionalLatencySize);
         }
 
         public override void NetworkDestroy()
@@ -45,11 +54,14 @@ namespace MetaVoiceChat.NetProviders.Netick
             double timestamp = *(double*)data;
             data += sizeof(double);
 
-            float additionalLatency = *(float*)data;
-            data += sizeof(float);
+            byte compressedAdditionalLatency = *(byte*)data;
+            data += additionalLatencySize;
+
+            float additionalLatency = (float)compressedAdditionalLatency / byte.MaxValue;
+            additionalLatency *= MaxAdditionalLatency;
 
             int payloadLength = length;
-            payloadLength-= (sizeof(int) + sizeof(double) + sizeof(float));
+            payloadLength-= ExtraDataSize;
 
             if (sandbox.IsServer)
             {
@@ -103,9 +115,13 @@ namespace MetaVoiceChat.NetProviders.Netick
                     conn.SendData(VoiceDataID, buffer, totalLength, TransportDeliveryMethod.Unreliable);
             }
         }
-
+        
         private unsafe byte* GetVoiceDataPointer(int index, double timestamp, float additionalLatency, ReadOnlySpan<byte> data)
         {
+            additionalLatency = Mathf.Clamp(additionalLatency, 0, MaxAdditionalLatency);
+            float t = additionalLatency / MaxAdditionalLatency;
+            byte compressedAdditionalLatency = ((byte)(t * byte.MaxValue));
+
             byte* ptr = (byte*)pVoiceBuffer;
 
             *(int*)ptr = index;
@@ -114,8 +130,8 @@ namespace MetaVoiceChat.NetProviders.Netick
             *(double*)ptr = timestamp;
             ptr += sizeof(double);
 
-            *(float*)ptr = additionalLatency;
-            ptr += sizeof(float);
+            *(byte*)ptr = compressedAdditionalLatency;
+            ptr += additionalLatencySize;
 
             //data.CopyTo(new Span<byte>(ptr, data.Length));
             fixed (byte* srcPtr = data)
@@ -128,7 +144,7 @@ namespace MetaVoiceChat.NetProviders.Netick
 
         public unsafe void SendServerVoiceToClients(int index, double timestamp, float additionalLatency, ReadOnlySpan<byte> data, int playerID)
         {
-            int length = sizeof(int) + sizeof(double) + sizeof(float) + data.Length;
+            int length = ExtraDataSize + data.Length;
 
             byte* pData = GetVoiceDataPointer(index, timestamp, additionalLatency, data);
 
@@ -137,9 +153,10 @@ namespace MetaVoiceChat.NetProviders.Netick
 
         public unsafe void SendVoiceDataToServer(int index, double timestamp, float additionalLatency, ReadOnlySpan<byte> data)
         {
-            int totalLength = sizeof(int) + sizeof(double) + sizeof(float) + data.Length;
+            int totalLength = ExtraDataSize + data.Length;
 
             Sandbox.ConnectedServer.SendData(VoiceDataID, GetVoiceDataPointer(index, timestamp, additionalLatency, data), totalLength, TransportDeliveryMethod.Unreliable);
         }
     }
 }
+#endif

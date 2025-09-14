@@ -1,10 +1,8 @@
+#if NETICK
 using System;
 using System.Collections.Generic;
 using Netick.Unity;
 using UnityEngine;
-
-// A possible optimization is to handle all of the networking in one manager class and batch frames with a single timestamp.
-// However, this is complex and benefits are negligible.
 
 namespace MetaVoiceChat.NetProviders.Netick
 {
@@ -26,7 +24,6 @@ namespace MetaVoiceChat.NetProviders.Netick
 
         public override void NetworkStart()
         {
-            Sandbox.Log(IsInputSource);
             #region Singleton
             if (IsInputSource)
             {
@@ -49,16 +46,15 @@ namespace MetaVoiceChat.NetProviders.Netick
 
             static int GetMaxDataBytesPerPacket()
             {
-                //int bytes = NetworkMessages.MaxMessageSize(Channels.Unreliable) - 13;
-                int bytes = 1000;
-                bytes -= sizeof(int); // Index
-                bytes -= sizeof(double); // Timestamp
-                bytes -= sizeof(byte); // Additional latency
-                bytes -= sizeof(int); // Player id
-                bytes -= sizeof(ushort); // Array length
+                int bytes = 1000;           //safe number
+                bytes -= sizeof(int);       // Index
+                bytes -= sizeof(double);    // Timestamp
+                bytes -= MetaVoiceChatNetick.additionalLatencySize;
+                bytes -= sizeof(int);       // Player id
+                //bytes -= sizeof(ushort);    // Array length (not needed?)
                 return bytes;
             }
-            //Sandbox.Transport.p
+
             MetaVc = GetComponent<MetaVc>();
             MetaVc.StartClient(this, IsInputSource, GetMaxDataBytesPerPacket());
         }
@@ -82,9 +78,6 @@ namespace MetaVoiceChat.NetProviders.Netick
 
         void INetProvider.RelayFrame(int index, double timestamp, ReadOnlySpan<byte> data)
         {
-            //byte[] array = FixedLengthArrayPool<byte>.Rent(data.Length);
-            //data.CopyTo(array);
-
             float additionalLatency = GetAdditionalLatency();
 
             if (Sandbox.IsServer)
@@ -110,3 +103,4 @@ namespace MetaVoiceChat.NetProviders.Netick
         }
     }
 }
+#endif
