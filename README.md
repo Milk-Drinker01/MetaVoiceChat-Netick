@@ -2,7 +2,7 @@
 An integration of MetaVoiceChat with Netick Networking
 
 ## Requirements:
-- [Netick 2 for Unity](https://github.com/NetickNetworking/NetickForUnity)
+- [Netick 2 for Unity](https://github.com/NetickNetworking/NetickForUnity) (Version 0.14.73 or newer)
 - [MetaVoiceChat](https://github.com/Metater/MetaVoiceChat)
 
 ## How to use:
