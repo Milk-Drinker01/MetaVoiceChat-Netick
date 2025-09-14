@@ -12,6 +12,12 @@
 /[Uu]ser[Ss]ettings/
 *.log
 
+Assets/Netick/*
+Assets/Netick.meta
+
+/[Aa]ssets/Metater/**
+/[Aa]ssets/Metater.meta
+
 # MemoryCaptures can get excessive in size.
 # They also could contain extremely sensitive data
 /[Mm]emoryCaptures/
